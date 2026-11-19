@@ -31,6 +31,7 @@ const AN = Int32Array.from(R.an);
 const ME = Int32Array.from(R.me);
 const FA = Float64Array.from(R.fa || new Array(N).fill(0)); // Femea Alojada (valor do lote repetido em cada linha)
 const AMS = Float64Array.from(R.ams || new Array(N).fill(0)); // Idade Matriz S (semana de idade, inteira)
+const STDV = Float64Array.from(R.stdp || new Array(N).fill(0)); // STD Pintos/AA (padrão informado na planilha)
 const AGE = RAW.hasAMS ? AMS : AM; // base do filtro de idade do Pintos/AA (se a coluna S faltar, cai na idade decimal)
 
 const SEMANAS = DICT.semana; // sorted date strings 'YYYY-MM-DD' (Monday of each week bucket)
@@ -173,7 +174,14 @@ function makeDropdownFilter(cfg){
       c.style.display = c.dataset.val.toLowerCase().includes(q) ? '' : 'none';
     });
   });
-  return { updateLabel, buildList };
+  // troca a lista de opções (usado quando os filtros de linhagem/ano mudam os lotes candidatos)
+  function setValues(vals){
+    cfg.values = vals;
+    document.getElementById(cfg.searchId).value = '';
+    buildList();
+    updateLabel();
+  }
+  return { updateLabel, buildList, setValues };
 }
 
 const fazFilter = makeDropdownFilter({
@@ -385,37 +393,61 @@ const PAA = (function(){
   for (let i=0;i<N;i++){
     const key = F[i]+'|'+L[i]+'|'+LG[i];
     let e = map.get(key);
-    if (!e){ e = { fIdx:F[i], lIdx:L[i], lgIdx:LG[i], fa:0, ultimo:'', maxAge:0, rows:[] }; map.set(key, e); }
+    if (!e){ e = { fIdx:F[i], lIdx:L[i], lgIdx:LG[i], fa:0, ultimo:'', inicio:'', maxAge:0, rows:[] }; map.set(key, e); }
     e.rows.push(i);
     if (FA[i] > e.fa) e.fa = FA[i];
     if (AGE[i] > e.maxAge) e.maxAge = AGE[i];
     const d = DATAS[DN[i]];
     if (d > e.ultimo) e.ultimo = d;
+    if (e.inicio === '' || d < e.inicio) e.inicio = d;
   }
   const lotes = [];
   map.forEach(e=>{
     if (!(e.fa > 0)) return;
+    let minAge = Infinity; // idade (semana) do primeiro registro do lote na base
+    for (let k=0;k<e.rows.length;k++){ const a = AGE[e.rows[k]]; if (a > 0 && a < minAge) minAge = a; }
     lotes.push({
+      minAge: isFinite(minAge) ? minAge : 0,
       label: FAZENDAS[e.fIdx]+'-'+LOTES[e.lIdx]+'-'+LINHGS[e.lgIdx],
-      linhg: LINHGS[e.lgIdx], fa:e.fa, ultimo:e.ultimo, maxAge:e.maxAge, rows:e.rows
+      linhg: LINHGS[e.lgIdx], fa:e.fa, ultimo:e.ultimo, inicio:e.inicio, anoInicio:+e.inicio.slice(0,4),
+      maxAge:e.maxAge, rows:e.rows
     });
   });
   lotes.sort((a,b)=> a.linhg.localeCompare(b.linhg,'pt-BR') || a.label.localeCompare(b.label,'pt-BR',{numeric:true}));
   return { lotes, excluidos: map.size - lotes.length };
 })();
+/* Lote com histórico incompleto: já estava em produção quando a base começa (produção anterior fora da base),
+   então o acumulado dele fica abaixo do STD. Critério: primeiro registro nas primeiras semanas da base E idade
+   desse registro bem acima da idade típica de início dos lotes que começaram depois (mediana + 2 semanas). */
+const PAA_JANELA_BASE = addDays(DATAS[0], 45);
+const PAA_IDADE_INICIO_TIPICA = (function(){
+  const idades = PAA.lotes.filter(l=> l.inicio > PAA_JANELA_BASE && l.minAge > 0).map(l=>l.minAge).sort((a,b)=>a-b);
+  return idades.length ? idades[Math.floor(idades.length/2)] : null;
+})();
+PAA.lotes.forEach(l=>{
+  l.incompleto = PAA_IDADE_INICIO_TIPICA != null && l.inicio <= PAA_JANELA_BASE && l.minAge > PAA_IDADE_INICIO_TIPICA + 2;
+});
 const PAA_IDADE_MAX = Math.ceil(PAA.lotes.reduce((m,l)=> Math.max(m, l.maxAge), 0)) || 100;
+const PAA_LINHGS = Array.from(new Set(PAA.lotes.map(l=>l.linhg)));                 // já em ordem alfabética
+const PAA_ANOS = Array.from(new Set(PAA.lotes.map(l=>l.anoInicio))).sort((a,b)=>a-b); // ano do 1º nascimento do lote
 
+/* Filtros próprios do gráfico (independentes da barra lateral):
+   - Linhagem e Ano (início do lote) definem quais lotes são "candidatos";
+   - o filtro de Lotes escolhe, entre os candidatos, os que aparecem;
+   - Idade final restringe os registros somados em cada lote.
+   Ao mudar Linhagem/Ano, a seleção de lotes passa a ser todos os candidatos (o usuário pediu esse recorte). */
 const PAA_CORTE_ATIVOS = addDays(ULTIMO_DIA, -30);
-const paaState = { sel: new Set(), idadeMax: null }; // idadeMax: null = sem limite (semanas)
-function paaAtivosLabels(){ return PAA.lotes.filter(l=>l.ultimo >= PAA_CORTE_ATIVOS).map(l=>l.label); }
+const paaState = { sel: new Set(), idadeMax: null, lg: new Set(PAA_LINHGS), ano: new Set(PAA_ANOS) }; // idadeMax: null = sem limite
+function paaCandidatos(){ return PAA.lotes.filter(l=> paaState.lg.has(l.linhg) && paaState.ano.has(l.anoInicio)); }
+function paaAtivosLabels(){ return paaCandidatos().filter(l=>l.ultimo >= PAA_CORTE_ATIVOS).map(l=>l.label); }
 paaAtivosLabels().forEach(v=>paaState.sel.add(v));
-if (paaState.sel.size === 0) PAA.lotes.forEach(l=>paaState.sel.add(l.label));
+if (paaState.sel.size === 0) paaCandidatos().forEach(l=>paaState.sel.add(l.label));
 
 let paaRows = []; // uma entrada por categoria do eixo (cabeçalho de linhagem, lote ou espaço)
 
 const paaFilter = makeDropdownFilter({
   btnId:'paaDropdownBtn', listId:'paaList', searchId:'paaSearch', dropId:'paaDropdown',
-  values: PAA.lotes.map(l=>l.label), stateSet: paaState.sel,
+  values: paaCandidatos().map(l=>l.label), stateSet: paaState.sel,
   allLabel:'Todos os lotes', noneLabel:'Nenhum lote selecionado',
   onChange: function(){ renderPintosAA(); }
 });
@@ -429,12 +461,32 @@ function setPaaSelection(labels){
   paaFilter.updateLabel();
   renderPintosAA();
 }
+function onPaaAttrChange(){
+  const labels = paaCandidatos().map(l=>l.label);
+  paaFilter.setValues(labels);   // a lista de lotes passa a mostrar só os candidatos
+  setPaaSelection(labels);       // e todos eles entram no gráfico
+}
 document.getElementById('paaAtivos').addEventListener('click', ()=>{
   const a = paaAtivosLabels();
-  setPaaSelection(a.length ? a : PAA.lotes.map(l=>l.label));
+  setPaaSelection(a.length ? a : paaCandidatos().map(l=>l.label));
 });
-document.getElementById('paaTodos').addEventListener('click', ()=> setPaaSelection(PAA.lotes.map(l=>l.label)));
+document.getElementById('paaTodos').addEventListener('click', ()=> setPaaSelection(paaCandidatos().map(l=>l.label)));
 document.getElementById('paaLimpar').addEventListener('click', ()=> setPaaSelection([]));
+
+buildChips('paaChipLinhg', PAA_LINHGS, paaState.lg, null, onPaaAttrChange);
+buildChips('paaChipAno', PAA_ANOS, paaState.ano, null, onPaaAttrChange);
+function paaSetChips(containerId, set, values, todos){
+  set.clear();
+  if (todos) values.forEach(v=>set.add(v));
+  document.querySelectorAll('#'+containerId+' .chip').forEach(c=>{
+    c.classList.toggle('active', set.has(isNaN(c.dataset.val) ? c.dataset.val : +c.dataset.val));
+  });
+  onPaaAttrChange();
+}
+document.getElementById('paaLgTodos').addEventListener('click', ()=> paaSetChips('paaChipLinhg', paaState.lg, PAA_LINHGS, true));
+document.getElementById('paaLgLimpar').addEventListener('click', ()=> paaSetChips('paaChipLinhg', paaState.lg, PAA_LINHGS, false));
+document.getElementById('paaAnoTodos').addEventListener('click', ()=> paaSetChips('paaChipAno', paaState.ano, PAA_ANOS, true));
+document.getElementById('paaAnoLimpar').addEventListener('click', ()=> paaSetChips('paaChipAno', paaState.ano, PAA_ANOS, false));
 
 const paaIdadeEl = document.getElementById('paaIdade');
 paaIdadeEl.max = PAA_IDADE_MAX;
@@ -699,11 +751,40 @@ function initCharts(){
     }
   });
 
+  // marcador do STD Pintos/AA: traço preto (com contorno branco) na posição do valor padrão de cada lote
+  const paaStdPlugin = {
+    id: 'paaStd',
+    afterDatasetsDraw(chart){
+      if (!paaRows.length) return;
+      const xs = chart.scales.x, ctx = chart.ctx;
+      ctx.save();
+      paaRows.forEach((r, idx)=>{
+        if (r.type !== 'lote' || !(r.std > 0)) return;
+        for (let di=0; di<chart.data.datasets.length; di++){
+          if (!chart.isDatasetVisible(di) || chart.data.datasets[di].data[idx] == null) continue;
+          const bar = chart.getDatasetMeta(di).data[idx];
+          if (!bar) continue;
+          const p = bar.getProps(['y','height'], true);
+          const x = xs.getPixelForValue(r.std), h = (p.height || 16)/2 + 3;
+          ctx.lineCap = 'butt';
+          ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 5;
+          ctx.beginPath(); ctx.moveTo(x, p.y-h); ctx.lineTo(x, p.y+h); ctx.stroke();
+          ctx.strokeStyle = '#111111'; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.moveTo(x, p.y-h); ctx.lineTo(x, p.y+h); ctx.stroke();
+          break;
+        }
+      });
+      ctx.restore();
+    }
+  };
+
   chPintosAA = new Chart($('chartPintosAA'), {
     type:'bar',
     data:{labels:[], datasets:[]},
+    plugins:[paaStdPlugin],
     options:{
       indexAxis:'y',
+      interaction:{mode:'index', axis:'y', intersect:false},
       layout:{padding:{right:40}},
       scales:{
         x:{stacked:true, beginAtZero:true, grid:{color:gridColor},
@@ -727,14 +808,24 @@ function initCharts(){
             title:(items)=> items.length && paaRows[items[0].dataIndex] ? paaRows[items[0].dataIndex].label : '',
             label:(ctx)=>{
               const r = paaRows[ctx.dataIndex];
+              const sinal = (v)=> (v>=0 ? '+' : '') + fmt(v,1);
               const linhas = [
                 ' Linhagem: '+r.linhg,
+                ' Início do lote (1º nascimento): '+r.inicio.split('-').reverse().join('/'),
                 ' Pintos/AA: '+fmt(r.paa,2),
                 ' Pintos nascidos: '+fmtInt(r.tn)+(paaState.idadeMax!=null ? ' (até a semana '+fmt(paaState.idadeMax,0)+' de idade)' : ''),
                 ' Fêmeas alojadas: '+fmtInt(r.fa),
                 ' Semana de idade máxima na base: '+fmt(r.maxAge, RAW.hasAMS ? 0 : 1)
               ];
+              if (r.std != null){
+                const dif = r.paa - r.std;
+                linhas.push(' STD Pintos/AA: '+fmt(r.std,1));
+                linhas.push(' Diferença p/ STD: '+sinal(dif)+' ('+sinal(dif/r.std*100)+'%)');
+              } else if (RAW.hasSTD){
+                linhas.push(' STD Pintos/AA: não informado');
+              }
               if (r.parcial) linhas.push(' Lote em produção: ainda não chegou à idade filtrada');
+              if (r.incompleto) linhas.push(' * Histórico incompleto: o lote já estava na semana '+fmt(r.minAge,0)+' de idade quando a base começa (produção anterior fora da base)');
               return linhas;
             }
           }
@@ -748,6 +839,7 @@ function initCharts(){
 function renderPintosAA(){
   const summary = $('paaSummary');
   const wrap = $('paaWrap');
+  $('paaStdKey').style.display = RAW.hasSTD ? '' : 'none';
 
   if (!RAW.hasFA){
     paaRows = [];
@@ -757,22 +849,33 @@ function renderPintosAA(){
   }
 
   const cut = paaState.idadeMax; // null = sem limite
-  const selecionados = PAA.lotes.filter(l=>paaState.sel.has(l.label)); // já em ordem de linhagem
+  const selecionados = paaCandidatos().filter(l=>paaState.sel.has(l.label)); // já em ordem de linhagem
   let semRegistro = 0;
   const sel = [];
   selecionados.forEach(l=>{
-    let tn = 0, n = 0;
+    let tn = 0, n = 0, std = 0, stdAge = -1, stdDn = -1;
     for (let k=0;k<l.rows.length;k++){
       const i = l.rows[k];
       if (cut != null && AGE[i] > cut) continue;
       tn += TN[i]; n++;
+      // STD do lote = valor da planilha no último registro considerado (maior idade; empate: data mais recente)
+      if (STDV[i] > 0 && (AGE[i] > stdAge || (AGE[i] === stdAge && DN[i] > stdDn))){
+        stdAge = AGE[i]; stdDn = DN[i]; std = STDV[i];
+      }
     }
     if (n === 0){ semRegistro++; return; } // lote sem nenhum registro até a idade final
     sel.push(Object.assign({}, l, {
-      tn, paa: tn/l.fa,
+      tn, paa: tn/l.fa, std: std > 0 ? std : null,
       parcial: cut != null && l.maxAge < cut && l.ultimo >= PAA_CORTE_ATIVOS // ainda em produção, não chegou à idade filtrada
     }));
   });
+
+  // média do STD ponderada pelas fêmeas alojadas (só lotes com STD informado)
+  function stdMedio(arr){
+    let fa = 0, s = 0;
+    arr.forEach(l=>{ if (l.std != null){ fa += l.fa; s += l.std * l.fa; } });
+    return fa > 0 ? s/fa : null;
+  }
 
   const byLg = new Map();
   sel.forEach(l=>{ if (!byLg.has(l.linhg)) byLg.set(l.linhg, []); byLg.get(l.linhg).push(l); });
@@ -782,10 +885,11 @@ function renderPintosAA(){
   lgs.forEach((lg, gi)=>{
     const arr = byLg.get(lg).slice().sort((a,b)=> b.paa - a.paa);
     const tn = arr.reduce((s,l)=>s+l.tn,0), fa = arr.reduce((s,l)=>s+l.fa,0);
+    const sm = stdMedio(arr);
     if (gi>0){ labels.push(''); rows.push({type:'gap'}); }
-    labels.push(lg+' — média '+fmt(fa>0?tn/fa:0,1)+' · '+arr.length+(arr.length===1?' lote':' lotes'));
+    labels.push(lg+' — média '+fmt(fa>0?tn/fa:0,1)+(sm!=null ? ' · STD '+fmt(sm,1) : '')+' · '+arr.length+(arr.length===1?' lote':' lotes'));
     rows.push({type:'header', linhg:lg});
-    arr.forEach(l=>{ labels.push(l.label); rows.push(Object.assign({type:'lote'}, l)); });
+    arr.forEach(l=>{ labels.push(l.label + (l.incompleto ? ' *' : '')); rows.push(Object.assign({type:'lote'}, l)); });
   });
   paaRows = rows;
 
@@ -799,18 +903,27 @@ function renderPintosAA(){
     },
     data: rows.map(r=> r.type==='lote' && r.linhg===lg ? +r.paa.toFixed(2) : null)
   }));
+  // o eixo precisa comportar também o marcador do STD
+  const maxVal = sel.reduce((m,l)=> Math.max(m, l.paa, l.std || 0), 0);
+  chPintosAA.options.scales.x.suggestedMax = maxVal > 0 ? maxVal * 1.08 : undefined;
   wrap.style.height = Math.max(260, rows.length*24 + 90) + 'px';
   chPintosAA.update();
 
   const totTn = sel.reduce((s,l)=>s+l.tn,0), totFa = sel.reduce((s,l)=>s+l.fa,0);
+  const stdGeral = stdMedio(sel);
   const nParciais = sel.filter(l=>l.parcial).length;
   let txt = sel.length === 0
-    ? (selecionados.length === 0 ? 'Selecione ao menos um lote.' : 'Nenhum registro dos lotes selecionados até essa idade.')
+    ? (selecionados.length === 0 ? 'Nenhum lote selecionado (confira os filtros de linhagem, ano e lotes).' : 'Nenhum registro dos lotes selecionados até essa idade.')
     : sel.length+(sel.length===1?' lote':' lotes')+' · média geral '+fmt(totFa>0?totTn/totFa:0,1)+' Pintos/AA'
+      + (stdGeral != null ? ' · STD '+fmt(stdGeral,1) : '')
       + (cut != null ? ' · até a semana '+fmt(cut,0)+' de idade' : '');
   if (nParciais > 0) txt += ' · '+(nParciais===1 ? '1 lote (barra clara) ainda não chegou' : nParciais+' lotes (barras claras) ainda não chegaram')+' à idade final';
+  const nIncompletos = sel.filter(l=>l.incompleto).length;
+  if (nIncompletos > 0) txt += ' · '+nIncompletos+(nIncompletos===1 ? ' lote com * começou' : ' lotes com * começaram')+' antes da base (histórico incompleto: Pintos/AA fica abaixo do STD)';
   if (semRegistro > 0) txt += ' · '+semRegistro+(semRegistro===1?' lote sem':' lotes sem')+' registros até essa idade (fora do gráfico)';
   if (cut != null && !RAW.hasAMS) txt += ' · coluna "Idade Matriz S" não encontrada: usando a Idade Matriz decimal';
+  if (!RAW.hasSTD) txt += ' · coluna "STD Pintos/AA" não encontrada (confira a coluna AM em js/config.js)';
+  else if (sel.length && sel.some(l=>l.std == null)) txt += ' · '+sel.filter(l=>l.std == null).length+' lote(s) sem STD informado';
   if (PAA.excluidos > 0) txt += ' · '+PAA.excluidos+(PAA.excluidos===1?' lote sem':' lotes sem')+' "Femea Alojada" preenchida (fora do gráfico)';
   summary.textContent = txt;
 }

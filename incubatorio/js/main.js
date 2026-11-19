@@ -8,7 +8,7 @@
   var DB_NAME = 'painel-incubatorio';
   var STORE = 'cache';
   var KEY = 'dataset';
-  var SCHEMA_V = 3; // precisa bater com 'v' em parse-core.js; caches de versões anteriores são ignorados
+  var SCHEMA_V = 4; // precisa bater com 'v' em parse-core.js; caches de versões anteriores são ignorados
 
   var statusEl = document.getElementById('syncStatus');
   var overlay = document.getElementById('loadingOverlay');
@@ -59,7 +59,9 @@
     for (var i = 0; i < ti.length; i++) soma += ti[i];
     var fa = d.rows.fa, somaFa = 0;
     if (fa) for (var j = 0; j < fa.length; j++) somaFa += fa[j];
-    return d.n + '|' + d.dict.dataNasc[d.dict.dataNasc.length - 1] + '|' + Math.round(soma) + '|' + Math.round(somaFa);
+    var sp = d.rows.stdp, somaSp = 0;
+    if (sp) for (var m = 0; m < sp.length; m++) somaSp += sp[m];
+    return d.n + '|' + d.dict.dataNasc[d.dict.dataNasc.length - 1] + '|' + Math.round(soma) + '|' + Math.round(somaFa) + '|' + Math.round(somaSp * 100);
   }
 
   function showError(msg) {

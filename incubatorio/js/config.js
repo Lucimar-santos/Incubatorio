@@ -14,8 +14,9 @@ window.PAINEL_CONFIG = {
   // K=Dias Estoq., L=Total Incubados, M=Cont., N=Total Nascidos, O=Elim.,
   // P=Nasc. Mortos, Q=Total Vendáveis, W=% Std Eclosão, X=% Dif Eclosão, Y=IEV, Z=IEE,
   // AH=Idade Matriz S (semana de idade, usada no filtro de idade do gráfico Pintos/AA),
-  // AL=Femea Alojada (usada no gráfico Pintos/AA por lote)
-  SELECT: 'E,F,G,H,I,J,K,L,M,N,O,P,Q,W,X,Y,Z,AH,AL',
+  // AL=Femea Alojada (usada no gráfico Pintos/AA por lote),
+  // AM=STD Pintos/AA (padrão, desenhado como marcador no gráfico Pintos/AA)
+  SELECT: 'E,F,G,H,I,J,K,L,M,N,O,P,Q,W,X,Y,Z,AH,AL,AM',
 
   // Intervalo (em minutos) para checar automaticamente se a planilha mudou
   AUTO_SYNC_MINUTOS: 10

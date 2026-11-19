@@ -82,7 +82,8 @@ var COLMAP = {
    que depende delas mostra um aviso. */
 var COLMAP_OPT = {
   femeaAlojada:['femea alojada','femeas alojadas','femea alojadas'],
-  idadeMatrizS:['idade matriz s']
+  idadeMatrizS:['idade matriz s'],
+  stdPintosAA:['std pintos/aa','std pintos aa','std pintos / aa','std pintos/ aa','std pintosaa']
 };
 
 function mapHeaders(header){
@@ -117,7 +118,7 @@ function buildDataset(csvText){
     return i;
   }
 
-  var R={f:[],l:[],to:[],lg:[],sm:[],dn:[],am:[],ds:[],ti:[],ct:[],tn:[],el:[],nm:[],tv:[],iev:[],iee:[],se:[],df:[],an:[],me:[],fa:[],ams:[]};
+  var R={f:[],l:[],to:[],lg:[],sm:[],dn:[],am:[],ds:[],ti:[],ct:[],tn:[],el:[],nm:[],tv:[],iev:[],iee:[],se:[],df:[],an:[],me:[],fa:[],ams:[],stdp:[]};
   for(var r=1;r<rows.length;r++){
     var row=rows[r];
     if(!row || row.length<3) continue;
@@ -145,6 +146,7 @@ function buildDataset(csvText){
     R.df.push(num(row[idx.difEcl]));
     R.fa.push(idx.femeaAlojada>=0 ? num(row[idx.femeaAlojada]) : 0);
     R.ams.push(idx.idadeMatrizS>=0 ? num(row[idx.idadeMatrizS]) : 0);
+    R.stdp.push(idx.stdPintosAA>=0 ? num(row[idx.stdPintosAA]) : 0);
     R.an.push(+iso.slice(0,4));
     R.me.push(+iso.slice(5,7));
   }
@@ -162,5 +164,5 @@ function buildDataset(csvText){
   });
 
   /* v = versão do formato da base guardada no navegador (main.js descarta caches antigos) */
-  return { v: 3, hasFA: idx.femeaAlojada>=0, hasAMS: idx.idadeMatrizS>=0, dict: dict, rows: R, n: R.ti.length, updatedAt: Date.now() };
+  return { v: 4, hasFA: idx.femeaAlojada>=0, hasAMS: idx.idadeMatrizS>=0, hasSTD: idx.stdPintosAA>=0, dict: dict, rows: R, n: R.ti.length, updatedAt: Date.now() };
 }
