@@ -537,3 +537,4 @@ footer{
 .paa-unit{font-size:10.5px;color:var(--muted);font-weight:700;}
 .paa-key{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--muted);font-weight:700;margin-top:6px;}
 .paa-key-tick{display:inline-block;width:3px;height:14px;background:#111;box-shadow:0 0 0 1.5px #fff,0 0 0 2.5px #C9CED6;}
+.paa-attr-row .dropdown{width:215px;}

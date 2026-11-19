@@ -409,7 +409,7 @@ const PAA = (function(){
     lotes.push({
       minAge: isFinite(minAge) ? minAge : 0,
       label: FAZENDAS[e.fIdx]+'-'+LOTES[e.lIdx]+'-'+LINHGS[e.lgIdx],
-      linhg: LINHGS[e.lgIdx], fa:e.fa, ultimo:e.ultimo, inicio:e.inicio, anoInicio:+e.inicio.slice(0,4),
+      linhg: LINHGS[e.lgIdx], fa:e.fa, ultimo:e.ultimo, inicio:e.inicio,
       maxAge:e.maxAge, rows:e.rows
     });
   });
@@ -429,16 +429,39 @@ PAA.lotes.forEach(l=>{
 });
 const PAA_IDADE_MAX = Math.ceil(PAA.lotes.reduce((m,l)=> Math.max(m, l.maxAge), 0)) || 100;
 const PAA_LINHGS = Array.from(new Set(PAA.lotes.map(l=>l.linhg)));                 // já em ordem alfabética
-const PAA_ANOS = Array.from(new Set(PAA.lotes.map(l=>l.anoInicio))).sort((a,b)=>a-b); // ano do 1º nascimento do lote
 
 /* Filtros próprios do gráfico (independentes da barra lateral):
-   - Linhagem e Ano (início do lote) definem quais lotes são "candidatos";
+   - Linhagem e Ano definem quais lotes são "candidatos";
+   - Ano de referência de cada lote: sem idade final = ano de encerramento do lote (último nascimento na base);
+     com idade final = ano em que o lote estava naquela semana de idade (último registro até a idade final);
    - o filtro de Lotes escolhe, entre os candidatos, os que aparecem;
    - Idade final restringe os registros somados em cada lote.
-   Ao mudar Linhagem/Ano, a seleção de lotes passa a ser todos os candidatos (o usuário pediu esse recorte). */
+   Ao mudar Linhagem/Ano (ou a idade final, quando há anos específicos escolhidos), a seleção de lotes passa a ser
+   todos os candidatos (o usuário pediu esse recorte). */
 const PAA_CORTE_ATIVOS = addDays(ULTIMO_DIA, -30);
-const paaState = { sel: new Set(), idadeMax: null, lg: new Set(PAA_LINHGS), ano: new Set(PAA_ANOS) }; // idadeMax: null = sem limite
-function paaCandidatos(){ return PAA.lotes.filter(l=> paaState.lg.has(l.linhg) && paaState.ano.has(l.anoInicio)); }
+const paaState = { sel: new Set(), idadeMax: null, lg: new Set(PAA_LINHGS), ano: new Set(), anoAll: true }; // idadeMax: null = sem limite
+let paaAnosLista = [];   // anos disponíveis (texto) para a idade final atual
+
+function paaCalcAnos(){
+  const cut = paaState.idadeMax;
+  PAA.lotes.forEach(l=>{
+    let best = -1;                                   // último registro considerado (data mais recente até a idade final)
+    for (let k=0;k<l.rows.length;k++){
+      const i = l.rows[k];
+      if (cut != null && AGE[i] > cut) continue;
+      if (DN[i] > best) best = DN[i];
+    }
+    l.anoRef = best >= 0 ? +DATAS[best].slice(0,4) : null;   // null = lote sem registro até essa idade
+  });
+  paaAnosLista = Array.from(new Set(PAA.lotes.filter(l=>l.anoRef != null).map(l=>String(l.anoRef)))).sort();
+}
+paaCalcAnos();
+paaAnosLista.forEach(a=>paaState.ano.add(a));
+
+function paaCandidatos(){
+  return PAA.lotes.filter(l=> paaState.lg.has(l.linhg) &&
+    (paaState.anoAll || (l.anoRef != null && paaState.ano.has(String(l.anoRef)))));
+}
 function paaAtivosLabels(){ return paaCandidatos().filter(l=>l.ultimo >= PAA_CORTE_ATIVOS).map(l=>l.label); }
 paaAtivosLabels().forEach(v=>paaState.sel.add(v));
 if (paaState.sel.size === 0) paaCandidatos().forEach(l=>paaState.sel.add(l.label));
@@ -450,6 +473,18 @@ const paaFilter = makeDropdownFilter({
   values: paaCandidatos().map(l=>l.label), stateSet: paaState.sel,
   allLabel:'Todos os lotes', noneLabel:'Nenhum lote selecionado',
   onChange: function(){ renderPintosAA(); }
+});
+const paaLgFilter = makeDropdownFilter({
+  btnId:'paaLgBtn', listId:'paaLgList', searchId:'paaLgSearch', dropId:'paaLgDropdown',
+  values: PAA_LINHGS, stateSet: paaState.lg,
+  allLabel:'Todas as linhagens', noneLabel:'Nenhuma linhagem',
+  onChange: function(){ onPaaAttrChange(); }
+});
+const paaAnoFilter = makeDropdownFilter({
+  btnId:'paaAnoBtn', listId:'paaAnoList', searchId:'paaAnoSearch', dropId:'paaAnoDropdown',
+  values: paaAnosLista, stateSet: paaState.ano,
+  allLabel:'Todos os anos', noneLabel:'Nenhum ano',
+  onChange: function(){ paaState.anoAll = paaState.ano.size === paaAnosLista.length; onPaaAttrChange(); }
 });
 
 function setPaaSelection(labels){
@@ -473,20 +508,16 @@ document.getElementById('paaAtivos').addEventListener('click', ()=>{
 document.getElementById('paaTodos').addEventListener('click', ()=> setPaaSelection(paaCandidatos().map(l=>l.label)));
 document.getElementById('paaLimpar').addEventListener('click', ()=> setPaaSelection([]));
 
-buildChips('paaChipLinhg', PAA_LINHGS, paaState.lg, null, onPaaAttrChange);
-buildChips('paaChipAno', PAA_ANOS, paaState.ano, null, onPaaAttrChange);
-function paaSetChips(containerId, set, values, todos){
+function paaSetLista(filter, set, values, todos){
   set.clear();
   if (todos) values.forEach(v=>set.add(v));
-  document.querySelectorAll('#'+containerId+' .chip').forEach(c=>{
-    c.classList.toggle('active', set.has(isNaN(c.dataset.val) ? c.dataset.val : +c.dataset.val));
-  });
-  onPaaAttrChange();
+  filter.buildList();            // reconstrói a lista com as caixas já marcadas/desmarcadas
+  filter.updateLabel();
 }
-document.getElementById('paaLgTodos').addEventListener('click', ()=> paaSetChips('paaChipLinhg', paaState.lg, PAA_LINHGS, true));
-document.getElementById('paaLgLimpar').addEventListener('click', ()=> paaSetChips('paaChipLinhg', paaState.lg, PAA_LINHGS, false));
-document.getElementById('paaAnoTodos').addEventListener('click', ()=> paaSetChips('paaChipAno', paaState.ano, PAA_ANOS, true));
-document.getElementById('paaAnoLimpar').addEventListener('click', ()=> paaSetChips('paaChipAno', paaState.ano, PAA_ANOS, false));
+document.getElementById('paaLgTodos').addEventListener('click', ()=>{ paaSetLista(paaLgFilter, paaState.lg, PAA_LINHGS, true); onPaaAttrChange(); });
+document.getElementById('paaLgLimpar').addEventListener('click', ()=>{ paaSetLista(paaLgFilter, paaState.lg, PAA_LINHGS, false); onPaaAttrChange(); });
+document.getElementById('paaAnoTodos').addEventListener('click', ()=>{ paaSetLista(paaAnoFilter, paaState.ano, paaAnosLista, true); paaState.anoAll = true; onPaaAttrChange(); });
+document.getElementById('paaAnoLimpar').addEventListener('click', ()=>{ paaSetLista(paaAnoFilter, paaState.ano, paaAnosLista, false); paaState.anoAll = false; onPaaAttrChange(); });
 
 const paaIdadeEl = document.getElementById('paaIdade');
 paaIdadeEl.max = PAA_IDADE_MAX;
@@ -496,10 +527,34 @@ function readPaaIdade(){
   const n = parseFloat(v.replace(',', '.'));
   return (isFinite(n) && n >= 0) ? n : null;
 }
-paaIdadeEl.addEventListener('input', ()=>{ paaState.idadeMax = readPaaIdade(); renderPintosAA(); });
-document.getElementById('paaIdadeLimpar').addEventListener('click', ()=>{
-  paaIdadeEl.value = ''; paaState.idadeMax = null; renderPintosAA();
-});
+function paaRotuloAno(){
+  const cut = paaState.idadeMax;
+  document.getElementById('paaAnoLabel').textContent = cut == null
+    ? 'Ano de encerramento do lote:'
+    : 'Ano em que o lote estava na semana ' + cut + ':';
+}
+// a idade final muda o ano de referência de cada lote: recalcula os anos disponíveis e mantém a escolha do usuário
+function paaOnIdadeChange(){
+  paaState.idadeMax = readPaaIdade();
+  const anteriores = new Set(paaState.ano);
+  paaCalcAnos();
+  paaState.ano.clear();
+  paaAnosLista.forEach(a=>{ if (paaState.anoAll || anteriores.has(a)) paaState.ano.add(a); });
+  paaAnoFilter.setValues(paaAnosLista);
+  paaRotuloAno();
+  if (paaState.anoAll) renderPintosAA(); else onPaaAttrChange();
+}
+paaIdadeEl.addEventListener('input', paaOnIdadeChange);
+document.getElementById('paaIdadeLimpar').addEventListener('click', ()=>{ paaIdadeEl.value = ''; paaOnIdadeChange(); });
+paaRotuloAno();
+
+/* cor do texto (branco ou escuro) que contrasta com a cor da barra */
+function paaTextoSobre(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#FFFFFF';
+  const n = parseInt(m[1], 16), r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  return (0.299*r + 0.587*g + 0.114*b)/255 > 0.62 ? '#1F2937' : '#FFFFFF';
+}
 
 /* ---------- 5. Filtering engine ---------- */
 // Filtering by "Data Nascimento" (daily) gives real day-level granularity;
@@ -771,6 +826,20 @@ function initCharts(){
           ctx.beginPath(); ctx.moveTo(x, p.y-h); ctx.lineTo(x, p.y+h); ctx.stroke();
           ctx.strokeStyle = '#111111'; ctx.lineWidth = 2.5;
           ctx.beginPath(); ctx.moveTo(x, p.y-h); ctx.lineTo(x, p.y+h); ctx.stroke();
+          // rótulo do valor do STD, do lado direito do marcador (caixa clara para ler sobre barra ou fundo)
+          const txt = fmt(r.std, 1);
+          ctx.font = '700 10px ' + (Chart.defaults.font.family || 'sans-serif');
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          const tw = ctx.measureText(txt).width, bx = x + 5, bw = tw + 8, bh = 15, by = p.y - bh/2, rd = 4;
+          ctx.beginPath();
+          ctx.moveTo(bx+rd, by); ctx.lineTo(bx+bw-rd, by); ctx.arcTo(bx+bw, by, bx+bw, by+rd, rd);
+          ctx.lineTo(bx+bw, by+bh-rd); ctx.arcTo(bx+bw, by+bh, bx+bw-rd, by+bh, rd);
+          ctx.lineTo(bx+rd, by+bh); ctx.arcTo(bx, by+bh, bx, by+bh-rd, rd);
+          ctx.lineTo(bx, by+rd); ctx.arcTo(bx, by, bx+rd, by, rd); ctx.closePath();
+          ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fill();
+          ctx.strokeStyle = '#D5D9E0'; ctx.lineWidth = 1; ctx.stroke();
+          ctx.fillStyle = '#111111';
+          ctx.fillText(txt, bx + 4, p.y + 0.5);
           break;
         }
       });
@@ -785,7 +854,7 @@ function initCharts(){
     options:{
       indexAxis:'y',
       interaction:{mode:'index', axis:'y', intersect:false},
-      layout:{padding:{right:40}},
+      layout:{padding:{right:56}},
       scales:{
         x:{stacked:true, beginAtZero:true, grid:{color:gridColor},
            title:{display:true, text:'Pintos nascidos por fêmea alojada (Pintos/AA)', font:{size:10}}},
@@ -799,7 +868,19 @@ function initCharts(){
         legend:{position:'bottom'},
         datalabels:{
           display:(ctx)=> ctx.dataset.data[ctx.dataIndex] != null,
-          anchor:'end', align:'end', color:'#4B5160', font:{size:10, weight:'700'},
+          // base interna: o valor fica dentro da barra, encostado no início dela
+          anchor:'start', align:'end', offset:4,
+          // texto claro sobre a barra; escuro se a barra for clara/curta demais para conter o número
+          color:(ctx)=>{
+            const r = paaRows[ctx.dataIndex];
+            const el = ctx.chart.getDatasetMeta(ctx.datasetIndex).data[ctx.dataIndex];
+            const pr = el ? el.getProps(['x','base'], true) : null;
+            const larg = pr ? Math.abs(pr.x - pr.base) : 0;
+            const nChars = fmt(ctx.dataset.data[ctx.dataIndex], 1).length;
+            if (!pr || larg < nChars*6.4 + 12 || (r && r.parcial)) return '#2B3340';
+            return paaTextoSobre(LINHG_COLORS[ctx.dataset.label]);
+          },
+          font:{size:10, weight:'700'},
           formatter:v=>fmt(v,1)
         },
         tooltip:{
@@ -812,6 +893,7 @@ function initCharts(){
               const linhas = [
                 ' Linhagem: '+r.linhg,
                 ' Início do lote (1º nascimento): '+r.inicio.split('-').reverse().join('/'),
+                ' Ano do filtro: '+(r.anoRef != null ? r.anoRef : '-')+(paaState.idadeMax==null ? ' (encerramento do lote)' : ' (lote na semana '+fmt(paaState.idadeMax,0)+' de idade)'),
                 ' Pintos/AA: '+fmt(r.paa,2),
                 ' Pintos nascidos: '+fmtInt(r.tn)+(paaState.idadeMax!=null ? ' (até a semana '+fmt(paaState.idadeMax,0)+' de idade)' : ''),
                 ' Fêmeas alojadas: '+fmtInt(r.fa),
@@ -905,7 +987,7 @@ function renderPintosAA(){
   }));
   // o eixo precisa comportar também o marcador do STD
   const maxVal = sel.reduce((m,l)=> Math.max(m, l.paa, l.std || 0), 0);
-  chPintosAA.options.scales.x.suggestedMax = maxVal > 0 ? maxVal * 1.08 : undefined;
+  chPintosAA.options.scales.x.suggestedMax = maxVal > 0 ? maxVal * 1.12 : undefined;
   wrap.style.height = Math.max(260, rows.length*24 + 90) + 'px';
   chPintosAA.update();
 

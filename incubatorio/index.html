@@ -199,15 +199,27 @@
     <div class="chart-head">
       <h4>Pintos nascidos por fêmea alojada (Pintos/AA) — por lote</h4>
     </div>
-    <div class="chart-note">Pintos nascidos do lote até a idade final escolhida (semana de idade da matriz, coluna "Idade Matriz S"; sem idade final = todo o histórico do lote) ÷ fêmeas alojadas · marcador preto = STD Pintos/AA da planilha (valor da última idade considerada) · lotes agrupados por linhagem (média da linhagem = soma de nascidos ÷ soma de fêmeas) · Ano = ano do primeiro nascimento do lote · * = lote que começou antes da base (histórico incompleto) · filtros próprios, independentes dos filtros da barra lateral</div>
-    <div class="bienal-filter-row paa-attr-row">
+    <div class="chart-note">Pintos nascidos do lote até a idade final escolhida (semana de idade da matriz, coluna "Idade Matriz S"; sem idade final = todo o histórico do lote) ÷ fêmeas alojadas · marcador preto = STD Pintos/AA da planilha (valor da última idade considerada) · lotes agrupados por linhagem (média da linhagem = soma de nascidos ÷ soma de fêmeas) · Ano = ano de encerramento do lote (último nascimento na base) ou, com idade final, o ano em que o lote estava nessa semana de idade · * = lote que começou antes da base (histórico incompleto) · filtros próprios, independentes dos filtros da barra lateral</div>
+    <div class="bienal-filter-row paa-filter-row paa-attr-row">
       <span class="bienal-filter-label">Linhagem:</span>
-      <div class="chip-row" id="paaChipLinhg"></div>
+      <div class="dropdown" id="paaLgDropdown">
+        <button type="button" class="dropdown-toggle" id="paaLgBtn">Todas as linhagens</button>
+        <div class="dropdown-panel">
+          <input type="text" class="faz-search" id="paaLgSearch" placeholder="Buscar linhagem...">
+          <div class="dropdown-list" id="paaLgList"></div>
+        </div>
+      </div>
       <span class="paa-btn" id="paaLgTodos">todas</span>
       <span class="paa-btn" id="paaLgLimpar">limpar</span>
       <span class="paa-sep"></span>
-      <span class="bienal-filter-label" title="Ano do primeiro nascimento registrado do lote">Ano (início do lote):</span>
-      <div class="chip-row" id="paaChipAno"></div>
+      <span class="bienal-filter-label" id="paaAnoLabel">Ano de encerramento do lote:</span>
+      <div class="dropdown" id="paaAnoDropdown">
+        <button type="button" class="dropdown-toggle" id="paaAnoBtn">Todos os anos</button>
+        <div class="dropdown-panel">
+          <input type="text" class="faz-search" id="paaAnoSearch" placeholder="Buscar ano...">
+          <div class="dropdown-list" id="paaAnoList"></div>
+        </div>
+      </div>
       <span class="paa-btn" id="paaAnoTodos">todos</span>
       <span class="paa-btn" id="paaAnoLimpar">limpar</span>
     </div>
@@ -230,7 +242,7 @@
       <span class="paa-btn" id="paaIdadeLimpar" title="Remove o limite de idade (usa todo o histórico do lote)">sem limite</span>
       <span class="paa-summary" id="paaSummary"></span>
     </div>
-    <div class="paa-key" id="paaStdKey"><span class="paa-key-tick"></span> STD Pintos/AA (padrão informado na planilha)</div>
+    <div class="paa-key" id="paaStdKey"><span class="paa-key-tick"></span> STD Pintos/AA (traço preto, valor à direita) · Pintos/AA no início de cada barra</div>
     <div class="paa-scroll"><div class="chart-wrap" id="paaWrap"><canvas id="chartPintosAA"></canvas></div></div>
   </div>
 
